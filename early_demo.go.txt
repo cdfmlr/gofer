@@ -1,0 +1,90 @@
+// gofer: GOlang Files Express Receiver
+
+package main
+
+import (
+	"fmt"
+	"io"
+	"net"
+	"os"
+)
+
+// SendFile 建立与 receiver 的 TCP 发送 srcFilePath 文件的内容
+// receiverAddr 是收件人的地址, e.g. 127.0.0.1:2333
+func SendFile(srcFilePath string, receiverAddr string) (sent int64, err error) {
+	file, err := os.Open(srcFilePath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	conn, err := net.Dial("tcp", receiverAddr)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+
+	fmt.Println("Receiver connected. Sending...")
+
+	return io.Copy(conn, file)
+}
+
+// ReceiveFile 监听指定地址 address, 从中接收文件保存到 dstFilePath
+// address 是要监听的地址, e.g. 127.0.0.1:2333
+func ReceiveFile(dstFilePath string, address string) (received int64, err error) {
+	file, err := os.OpenFile(dstFilePath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0666)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return 0, err
+	}
+	defer listener.Close()
+
+	fmt.Println("Waiting for sender...")
+
+	conn, err := listener.Accept()
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+
+	fmt.Println("Sender connected. Receiving...")
+
+	return io.Copy(file, conn)
+}
+
+func usage() {
+	fmt.Println("usage: gofer <send|recv> FILE ADDRESS")
+}
+
+func main() {
+	if len(os.Args) < 4 {
+		usage()
+		return
+	}
+
+	cmd := os.Args[1]
+	path := os.Args[2]
+	addr := os.Args[3]
+
+	switch cmd {
+	case "send":
+		if n, err := SendFile(path, addr); err != nil {
+			fmt.Println("SendFile failed:", err)
+		} else {
+			fmt.Println("Sent successfully:", n)
+		}
+	case "recv":
+		if n, err := ReceiveFile(path, addr); err != nil {
+			fmt.Println("ReceiveFile failed:", err)
+		} else {
+			fmt.Println("ReceiveFile success:", n)
+		}
+	default:
+		usage()
+	}
+}

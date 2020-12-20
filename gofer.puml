@@ -1,0 +1,312 @@
+@startuml
+
+ skinparam package<<Layout>> {
+   borderColor Gray
+'   backgroundColor Transparent
+   fontColor Gray
+   stereotypeFontColor Transparent
+ }
+' skinparam shadowing false
+
+package packetbase <<Layout>> {
+    class Body << (S,Aquamarine) >> {
+        + Info []byte
+        + Data []byte
+
+    }
+    class Header << (S,Aquamarine) >> {
+        + Type uint16
+        + InfoSize uint32
+        + DataSize uint32
+
+    }
+    class Packet << (S,Aquamarine) >> {
+        - fillHeaderFromBytes(header []byte) error
+
+        + ToBytes() []byte
+        + WriteTo(writer io.Writer) (int, error)
+
+    }
+}
+
+package packets <<Layout>> {
+    package bigfile <<Layout>> {
+        class BigFileHeader << (S,Aquamarine) >> {
+            - fileID []byte
+            - fileName string
+            - fileSize uint64
+            - fileHash []byte
+
+            + FileID() []byte
+            + SetFileID(fileID []byte)
+            + FileName() string
+            + SetFileName(fileName string)
+            + FileSize() uint64
+            + SetFileSize(fileSize uint64)
+            + FileHash() []byte
+            + SetFileHash(fileHash []byte)
+
+        }
+        class BigFileRequest << (S,Aquamarine) >> {
+            - fileID []byte
+            - start uint64
+            - length uint64
+
+            + FileID() []byte
+            + SetFileID(fileID []byte)
+            + Start() uint64
+            + SetStart(start uint64)
+            + Length() uint64
+            + SetLength(length uint64)
+
+        }
+        class BigFileResponse << (S,Aquamarine) >> {
+            - fileID []byte
+            - start uint64
+            - fileContent []byte
+
+            + FileContent() []byte
+            + SetFileContent(fileContent []byte)
+            + Start() uint64
+            + SetStart(start uint64)
+            + FileID() []byte
+            + SetFileID(fileID []byte)
+
+        }
+    }
+    package simplePackets <<Layout>> {
+        class SimpleFile << (S,Aquamarine) >> {
+            - fileName string
+            - fileContent []byte
+
+            + FileName() string
+            + SetFileName(fileName string)
+            + FileContent() []byte
+            + SetFileContent(fileContent []byte)
+            + WriteFileContent(writer io.Writer) (int, error)
+
+        }
+        class Message << (S,Aquamarine) >> {
+            - info string
+            - content string
+
+            + GetInfo() string
+            + SetInfo(info string)
+            + GetContent() string
+            + SetContent(content string)
+
+        }
+    }
+}
+
+package SR <<Layout>> {
+package messageSR <<Layout>> {
+    class MessageReceiver << (S,Aquamarine) >> {
+        + Receive(packet *Packet, conn net.Conn) <font color=blue>chan</font> bool
+
+    }
+    class MessageSender << (S,Aquamarine) >> {
+        - message *Message
+
+        + Send(conn net.Conn)
+
+    }
+}
+
+package simpleFileSR <<Layout>> {
+    class SimpleFileReceiver << (S,Aquamarine) >> {
+        + Receive(packet *Packet, conn net.Conn) <font color=blue>chan</font> bool
+
+    }
+    class SimpleFileSender << (S,Aquamarine) >> {
+        - simpleFile *SimpleFile
+
+        + Send(conn net.Conn)
+
+    }
+}
+
+package bigfileSR <<Layout>> {
+    class BigFileReceiver << (S,Aquamarine) >> {
+        - workerMap sync.Map
+        - wg sync.WaitGroup
+
+        - handleBigFileHeader(header *BigFileHeader, conn net.Conn)
+        - handleBigFileResponse(response *BigFileResponse, conn net.Conn)
+
+        + Receive(packet *Packet, conn net.Conn) <font color=blue>chan</font> bool
+
+    }
+    class BigFileSender << (S,Aquamarine) >> {
+        - filePathMap sync.Map
+        - headerMap sync.Map
+
+        - sendResponse(conn net.Conn) <font color=blue>chan</font> bool
+        - responseReq(req *BigFileRequest) (*BigFileResponse, error)
+        - sendHeader(conn net.Conn)
+
+        + AppendFile(filePath string)
+        + Send(conn net.Conn)
+
+    }
+    class BigFileReceiverWorker << (S,Aquamarine) >> {
+        - header *BigFileHeader
+        - saveDir string
+        - blockSize uint64
+        - numBlock uint64
+        - savedBlock []bool
+        - done <font color=blue>chan</font> string
+        - wait <font color=blue>chan</font> int
+        - allSaved <font color=blue>chan</font> bool
+
+        - init()
+        - prepareSaveDir()
+        - checkSaved()
+        - requestAllMissing(conn net.Conn, wait <font color=blue>chan</font> int, allSaved <font color=blue>chan</font> bool)
+        - missingBlockIndices() []int
+        - requestDownload(blockIndex int, conn net.Conn) error
+        - saveBlock(block uint64, fileContent []byte) error
+        - merge()
+        - checkFinalSum() bool
+
+        + _numBlock() uint64
+        + _saveDir() string
+        + Run(conn net.Conn) <font color=blue>chan</font> string
+        + Receive(response *BigFileResponse)
+        + BlockTmpFilePath(block uint64) string
+
+    }
+}
+}
+
+
+
+package ISendRecv <<Layout>> {
+    interface Sender  {
+        + Send(conn net.Conn)
+
+    }
+    interface PacketReceiver  {
+        + Receive(packet *Packet, conn net.Conn) <font color=blue>chan</font> bool
+
+    }
+}
+
+package sr <<Layout>> {
+    package senders <<Layout>> {
+        class SendClient << (S,Aquamarine) >> {
+            + Do(conn net.Conn) <font color=blue>chan</font> bool
+
+        }
+        class SendServer << (S,Aquamarine) >> {
+            + ServeConn(conn net.Conn)
+
+        }
+    }
+
+    package recvers <<Layout>> {
+        class ReceiveClient << (S,Aquamarine) >> {
+            + Do(conn net.Conn) <font color=blue>chan</font> bool
+
+        }
+        class ReceiveServer << (S,Aquamarine) >> {
+            + ServeConn(conn net.Conn)
+
+        }
+
+        package rcv <<Layout>> {
+            class Distributer << (S,Aquamarine) >> {
+                - packetReceivers sync.Map
+
+                + Register(packetType uint16, packetReceiver PacketReceiver)
+                + Receive(packet *Packet, conn net.Conn) <font color=blue>chan</font> bool
+
+            }
+
+            class Receiver << (S,Aquamarine) >> {
+                + Distributer *Distributer
+
+                + ReceiveAndHandle(conn net.Conn) <font color=blue>chan</font> bool
+
+            }
+        }
+    }
+}
+
+package ISerCli <<Layout>> {
+    interface Server  {
+        + ServeConn(conn net.Conn)
+
+    }
+
+    class server << (S,Aquamarine) >> {
+        + Handler Server
+
+        + Serve(listener net.Listener)
+
+    }
+
+    interface Client  {
+        + Do(conn net.Conn) <font color=blue>chan</font> bool
+
+    }
+}
+
+"Body" *-u- "extends""Packet"
+"Header" *-u- "extends""Packet"
+
+"Packet" *-u- "extends""BigFileHeader"
+"Packet" *-u- "extends""BigFileRequest"
+"Packet" *-u- "extends""BigFileResponse"
+"Packet" *-u- "extends""Message"
+"Packet" *-u- "extends""SimpleFile"
+
+"Receiver" *-u- "extends""ReceiveClient"
+"Receiver" *-u- "extends""ReceiveServer"
+
+"Sender" *-u- "extends""SendClient"
+"Sender" *-u- "extends""SendServer"
+
+"PacketReceiver" -u- "Distributer"
+
+"PacketReceiver" <|-- "implements""BigFileReceiver"
+"PacketReceiver" <|-- "implements""MessageReceiver"
+"PacketReceiver" <|-- "implements""SimpleFileReceiver"
+
+"Sender" <|-- "implements""MessageSender"
+"Sender" <|-- "implements""SimpleFileSender"
+'"Sender" <|-d- "implements""packetSender"
+"Sender" <|-- "implements""BigFileSender"
+
+"Server" -- "server"
+
+"Client" <|-- "implements""ReceiveClient"
+"server" <|-- "implements""ReceiveServer"
+
+"Client" <|-- "implements""SendClient"
+"server" <|-- "implements""SendServer"
+
+"SimpleFileSender""uses" o-- "SimpleFile"
+"SimpleFileReceiver""uses" o-- "SimpleFile"
+
+"MessageSender""uses" o-- "Message"
+"MessageReceiver""uses" o-- "Message"
+
+"BigFileSender" <-l[hidden]- "BigFileReceiver"
+
+"BigFileReceiver""uses" o-d- "BigFileReceiverWorker"
+
+"BigFileReceiverWorker""uses" o-- "BigFileHeader"
+"BigFileReceiverWorker""uses" o-- "BigFileRequest"
+"BigFileReceiverWorker""uses" o-- "BigFileResponse"
+
+"BigFileSender""uses" o-- "BigFileHeader"
+"BigFileSender""uses" o-- "BigFileRequest"
+"BigFileSender""uses" o-- "BigFileResponse"
+
+"Receiver""uses" o-- "Distributer"
+'"packetSender""uses" o-r- "Packet"
+' "server""uses" o-- "Server"
+
+
+@enduml
