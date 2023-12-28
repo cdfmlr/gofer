@@ -11,11 +11,28 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+    "strconv"
 	"sync"
 	"time"
 )
 
-const DefaultBlockSize = 1 * 1024 * 1024 // 1 MiB
+var DefaultBlockSize uint64 = 1 * 1024 * 1024 // 1 MiB
+
+func init() {
+	val, ok := os.LookupEnv("GOFER_BIGFILE_BLOCK_BYTES")
+	if !ok {
+		return	
+	}
+
+	u, err := strconv.ParseUint(val, 10, 64)
+	if err != nil {
+		log.Fatalf("Failed to parse GOFER_BIGFILE_BLOCK_BYTES: not an int: %v\n", val)
+	}
+
+	log.Printf("Set GOFER_BIGFILE_BLOCK_BYTES by env: %v\n", u)
+
+    DefaultBlockSize = u
+}
 
 // 大文件！！
 // 总而言之就是很大的文件, 不容易一次正确、快速传完的那种。
